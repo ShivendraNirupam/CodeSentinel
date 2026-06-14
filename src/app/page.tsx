@@ -12,10 +12,10 @@ export default function Home() {
       </div>
       <div>
         <Button asChild>
-          <Link href={"/login"}>Login</Link>
+          <Link href={"/sign-in"}>Login</Link>
         </Button>
         <Button asChild>
-          <Link href={"/login"}>Login</Link>
+          <Link href={"/sign-up"}>signup</Link>
         </Button>
       </div>
       <HealthCheck />
