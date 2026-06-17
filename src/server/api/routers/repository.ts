@@ -1,0 +1,92 @@
+import {
+  fetchGithubRepo,
+  getGithubAccessToken,
+} from "@/server/services/github";
+import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import z from "zod";
+
+export const repositoryRouter = createTRPCRouter({
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const repositories = await ctx.db.repository.findMany({
+      where: { userId: ctx.user.id },
+      orderBy: {},
+    });
+
+    return repositories;
+  }),
+
+  fetchFromGithub: protectedProcedure.query(async ({ ctx }) => {
+    const accessToken = await getGithubAccessToken(ctx.user.id);
+
+    if (!accessToken) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "User has not authorized Github access",
+      });
+    }
+
+    const repos = await fetchGithubRepo(accessToken);
+    return repos.map((repo) => ({
+      githubId: repo.id,
+      name: repo.name,
+      fullName: repo.full_name,
+      private: repo.private,
+      htmlUrl: repo.html_url,
+      description: repo.description,
+      language: repo.language,
+      stars: repo.stargazers_count,
+      updatedAt: repo.updated_at,
+    }));
+  }),
+
+  connect: protectedProcedure
+    .input(
+      z.object({
+        repos: z.array(
+          z.object({
+            githubId: z.number(),
+            name: z.string(),
+            fullName: z.string(),
+            private: z.boolean(),
+            htmlUrl: z.string(),
+          }),
+        ),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await Promise.all(
+        input.repos.map((repo) =>
+          ctx.db.repository.upsert({
+            where: { githubId: repo.githubId },
+            create: {
+              userId: ctx.user.id,
+              githubId: repo.githubId,
+              name: repo.name,
+              fullName: repo.fullName,
+              private: repo.private,
+              htmlUrl: repo.htmlUrl,
+            },
+            update: {
+              name: repo.name,
+              fullName: repo.fullName,
+              private: repo.private,
+              htmlUrl: repo.htmlUrl,
+              updatedAt: new Date(),
+            },
+          }),
+        ),
+      );
+      return { connected: result.length };
+    }),
+
+  disconnect: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.repository.delete({
+        where: { id: input.id, userId: ctx.user.id },
+      });
+
+      return { success: true };
+    }),
+});
